@@ -1,3 +1,4 @@
 <div>
-    This plugin adds locking and latch functionality to Hudson.
+    This plugin adds dynamic locking functionality to Hudson.
+    It is highly inspired from the Lock and Latches plugin.
 </div>

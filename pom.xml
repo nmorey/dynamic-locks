@@ -7,10 +7,10 @@
   		<version>1.480</version>
     </parent>
 
-    <artifactId>locks-and-latches</artifactId>
+    <artifactId>dynamic-locks</artifactId>
     <packaging>hpi</packaging>
-    <version>0.8-SNAPSHOT</version>
-    <name>Hudson Locks and Latches plugin</name>
+    <version>0.1-SNAPSHOT</version>
+    <name>Hudson Dynamic Locks plugin</name>
     <url>http://wiki.jenkins-ci.org/display/HUDSON/Locks+and+Latches+plugin</url>
 
 	<distributionManagement>
