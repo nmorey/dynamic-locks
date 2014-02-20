@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -54,50 +55,46 @@ public class LockWrapper extends BuildWrapper implements ResourceActivity {
 
     public ResourceList getResourceList() {
         ResourceList resources = new ResourceList();
-        for (LockWaitConfig lock : locks) {
-            resources.w(new Resource(null, "dynamic-locks/lock/" + lock.getName(), DESCRIPTOR.getWriteLockCount()));
-        }
+		/* Do NOT put the locks here because we don't have the parameters so this would create unnecessary exception */
         return resources;
     }
 
 
     @Override
     public Environment setUp(AbstractBuild abstractBuild, Launcher launcher, BuildListener buildListener) throws IOException, InterruptedException {
-        final List<ReentrantLock> backups = new ArrayList<ReentrantLock>();
+        final Map<String, ReentrantLock> backups = new HashMap<String, ReentrantLock>();
         List<LockWaitConfig> locks = new ArrayList<LockWaitConfig>(this.locks);
-        // sort this list of locks so that we _always_ ask for the locks in order
-        Collections.sort(locks, new Comparator<LockWaitConfig>() {
-            public int compare(LockWaitConfig o1, LockWaitConfig o2) {
-                return o1.getName().compareTo(o2.getName());
-            }
-        });
-        for (LockWaitConfig lock : locks) {
+
+		for (LockWaitConfig lock : locks) {
             ReentrantLock backupLock;
 			String varName = lock.getName();
 			Map<String, String> map = abstractBuild.getBuildVariables();
 			for(Map.Entry<String, String> e : map.entrySet()){
-			 	varName = varName.replace("${" + e.getKey() + "}", e.getValue());
+				varName = varName.replace("${" + e.getKey() + "}", e.getValue());
 			}
+			buildListener.getLogger().println("[dynamic-locks] Lock '" + varName + "' is required.");
             do {
                 backupLock = DESCRIPTOR.backupLocks.get(varName);
                 if (backupLock == null) {
                     DESCRIPTOR.backupLocks.putIfAbsent(varName, new ReentrantLock());
                 }
             } while (backupLock == null);
-            backups.add(backupLock);
+            backups.put(varName, backupLock);
         }
         buildListener.getLogger().println("[dynamic-locks] Checking to see if we really have the locks");
-        boolean haveAll = false;
+
+		boolean haveAll = false;
         while (!haveAll) {
             haveAll = true;
             List<ReentrantLock> locked = new ArrayList<ReentrantLock>();
             DESCRIPTOR.lockingLock.lock();
             try {
-                for (ReentrantLock lock : backups) {
-                    if (lock.tryLock()) {
-                        locked.add(lock);
+                for (Map.Entry<String, ReentrantLock> e : backups.entrySet()) {
+                    if (e.getValue().tryLock()) {
+                        locked.add(e.getValue());
                     } else {
-                        haveAll = false;
+						buildListener.getLogger().println("[dynamic-locks] Failed to acquire " + e.getKey() + ".");
+						haveAll = false;
                         break;
                     }
                 }
@@ -121,8 +118,8 @@ public class LockWrapper extends BuildWrapper implements ResourceActivity {
             @Override
             public boolean tearDown(AbstractBuild abstractBuild, BuildListener buildListener) throws IOException, InterruptedException {
                 buildListener.getLogger().println("[dynamic-locks] Releasing all the locks");
-                for (ReentrantLock lock : backups) {
-                    lock.unlock();
+				for (Map.Entry<String, ReentrantLock> e : backups.entrySet()) {
+					e.getValue().unlock();
                 }
                 buildListener.getLogger().println("[dynamic-locks] All the locks released");
                 return super.tearDown(abstractBuild, buildListener);
@@ -158,7 +155,15 @@ public class LockWrapper extends BuildWrapper implements ResourceActivity {
         @Override
         public BuildWrapper newInstance(StaplerRequest req, JSONObject formData) throws FormException {
           List<LockWaitConfig> locks = req.bindParametersToList(LockWaitConfig.class, "dynamic-locks.locks.");
-         return new LockWrapper(locks);
+ 
+		  List<LockWaitConfig> blankLocks = new ArrayList<LockWaitConfig>();
+		  for(LockWaitConfig lock: locks) {
+			  if(StringUtils.isBlank(lock.getName())) {
+				  blankLocks.add(lock);
+			  }
+		  }
+		  locks.removeAll(blankLocks);
+		  return new LockWrapper(locks);
         }
 
         public List<LockConfig> getLocks() {
@@ -170,10 +175,10 @@ public class LockWrapper extends BuildWrapper implements ResourceActivity {
 
         @Override
         public synchronized void save() {
-            // let's remove blank locks
-            List<LockConfig> blankLocks = new ArrayList<LockConfig>();
-            for(LockConfig lock: getLocks()) {
-                if(StringUtils.isBlank(lock.getName())) {
+			// let's remove blank locks
+			List<LockConfig> blankLocks = new ArrayList<LockConfig>();
+			for(LockConfig lock: getLocks()) {
+				if(StringUtils.isBlank(lock.getName())) {
                     blankLocks.add(lock);
                 }
             }
